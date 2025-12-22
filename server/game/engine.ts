@@ -30,4 +30,115 @@ export function startGame(game: Game): void {
     game.currentPlayerIdx = 0;
 }
 
+type PlayOptions = {
+    aceValue?: 1 | 11;
+    queenDelta?: -20 | 20;
+};
+
+export function computePlayDelta(rank: string, opts: PlayOptions = {}): number {
+    const r = rank.toUpperCase();
+    if (r === 'A') return opts.aceValue === 11 ? 11 : 1;
+    if (r === 'J') return 0;
+    if (r === 'Q') return opts.queenDelta === -20 ? -20 : 20;
+    if (r === 'K') return 0; // special effect later
+    // numeric
+    const n = parseInt(r, 10);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function minDeltaForRank(rank: string): number {
+    const r = rank.toUpperCase();
+    if (r === 'A') return 1;
+    if (r === 'J') return 0;
+    if (r === 'Q') return -20;
+    if (r === 'K') return 0;
+    const n = parseInt(r, 10);
+    return Number.isFinite(n) ? n : 0;
+}
+
+function hasLegalMove(game: Game, playerIdx: number): boolean {
+    const player = game.players[playerIdx];
+    if (!player) return false;
+    return player.hand.some(card => game.score + minDeltaForRank(card.rank) <= 99);
+}
+
+function advanceToNextAlive(game: Game): void {
+    if (game.players.length === 0) return;
+    let attempts = 0;
+    do {
+        game.currentPlayerIdx = (game.currentPlayerIdx + 1) % game.players.length;
+        attempts++;
+        if (attempts > game.players.length + 1) break;
+    } while (game.players[game.currentPlayerIdx]?.status === 'dead');
+}
+
+export function applyPlay(game: Game, playerClientId: string, cardId: string, opts: PlayOptions = {}): { ok: true } | { ok: false; reason: string } {
+    if (game.status !== 'playing') return { ok: false, reason: 'Game not in playing state' };
+    const current = game.players[game.currentPlayerIdx];
+    if (!current) return { ok: false, reason: 'Invalid current player' };
+    if (current.clientId !== playerClientId) return { ok: false, reason: 'Not your turn' };
+    const idxInHand = current.hand.findIndex(c => c.id === cardId);
+    if (idxInHand === -1) return { ok: false, reason: 'Card not in hand' };
+
+    const card = current.hand[idxInHand]!;
+    const delta = computePlayDelta(card.rank, opts);
+
+    // If this play would exceed 99, check if any legal move exists.
+    if (game.score + delta > 99) {
+        if (hasLegalMove(game, game.currentPlayerIdx)) {
+            // Player has at least one legal option (maybe with different card/choice) -> reject play
+            return { ok: false, reason: 'Play exceeds 99' };
+        } else {
+            // No legal moves: eliminate player immediately
+            current.status = 'dead';
+            // Advance to next alive player
+            advanceToNextAlive(game);
+            // If only one alive remains, finish
+            const aliveCount = game.players.filter(p => p.status !== 'dead').length;
+            if (aliveCount <= 1) {
+                game.status = 'finished';
+            }
+            return { ok: true };
+        }
+    }
+
+    game.score += delta;
+
+    // move to discard
+    current.hand.splice(idxInHand, 1);
+    game.discardPile.push(card);
+
+    // draw replacement
+    // If draw pile is empty, recycle discard pile except the top card
+    if (game.drawPile.length === 0 && game.discardPile.length > 1) {
+        const top = game.discardPile.pop()!;
+        const recycle = game.discardPile.splice(0, game.discardPile.length);
+        shuffleInPlace(recycle);
+        game.drawPile.push(...recycle);
+        game.discardPile.push(top);
+    }
+    const next = game.drawPile.pop();
+    if (next) current.hand.push(next);
+
+    // advance turn (simple round-robin)
+    advanceToNextAlive(game);
+
+    // Optional: auto-eliminate chain if next players have no legal moves
+    let safety = 0;
+    while (!hasLegalMove(game, game.currentPlayerIdx) && game.status === 'playing') {
+        const cur = game.players[game.currentPlayerIdx];
+        if (!cur) break;
+        cur.status = 'dead';
+        const aliveCount = game.players.filter(p => p.status !== 'dead').length;
+        if (aliveCount <= 1) {
+            game.status = 'finished';
+            break;
+        }
+        advanceToNextAlive(game);
+        safety++;
+        if (safety > 100) break;
+    }
+    return { ok: true };
+}
+
 

@@ -5,7 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Game } from '@shared/types.js';
-import { canStartGame, startGame as engineStartGame } from './game/engine.js';
+import { canStartGame, startGame as engineStartGame, applyPlay } from './game/engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +29,23 @@ interface Client {
 const clients: Map<string, Client> = new Map();
 
 const games: Map<string, Game> = new Map();
+
+function redactedGameFor(game: Game, viewerClientId: string): Game {
+    // Deep-ish clone minimal fields; players array cloned with hand redaction
+    return {
+        id: game.id,
+        leaderClientId: game.leaderClientId,
+        players: game.players.map(p => {
+            if (p.clientId === viewerClientId) return { ...p };
+            return { ...p, hand: [] };
+        }),
+        discardPile: [...game.discardPile],
+        drawPile: [], // do not expose draw pile contents
+        currentPlayerIdx: game.currentPlayerIdx,
+        score: game.score,
+        status: game.status,
+    };
+}
 
 httpServer.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
@@ -70,11 +87,13 @@ wss.on('connection', (connection) => {
                         status: 'lobby',
                     });
                     games.set(game.id, game);
-                    const payLoad = {
-                        method: 'createGame',
-                        game: games.get(gameId),
-                    };
-                    connection.send(JSON.stringify(payLoad));
+                    {
+                        const payLoad = {
+                            method: 'createGame',
+                            game: redactedGameFor(game, client.id),
+                        };
+                        connection.send(JSON.stringify(payLoad));
+                    }
                     console.log(`Game ${gameId} created. Total games: ${games.size}`);
                     break;
                 }
@@ -92,13 +111,14 @@ wss.on('connection', (connection) => {
                                 status: 'lobby',
                             });
                         }
-                        const payLoad = {
-                            method: 'joinGame',
-                            game: game,
-                        };
                         game.players.forEach(player => {
-                            clients.get(player.clientId)?.connection.send(JSON.stringify(payLoad));
-                        })
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'joinGame',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                        });
                         console.log(`Client ${clientId} joined game ${gameId}. Total players: ${game.players.length}`);
                     }
                     else {
@@ -109,11 +129,16 @@ wss.on('connection', (connection) => {
                 case 'getGame': {
                     const gameId = result.gameId;
                     const game = games.get(gameId);
-                    const payLoad = {
-                        method: 'getGame',
-                        game: game ?? null,
-                    };
-                    connection.send(JSON.stringify(payLoad));
+                    if (!game) {
+                        const payLoad = { method: 'getGame', game: null };
+                        connection.send(JSON.stringify(payLoad));
+                    } else {
+                        const payLoad = {
+                            method: 'getGame',
+                            game: redactedGameFor(game, client.id),
+                        };
+                        connection.send(JSON.stringify(payLoad));
+                    }
                     break;
                 }
                 case 'startGame': {
@@ -130,16 +155,88 @@ wss.on('connection', (connection) => {
                     }
                     if (canStartGame(game)) {
                         engineStartGame(game);
-                        const payLoad = {
-                            method: 'startGame',
-                            game: game,
-                        };
                         game.players.forEach(player => {
-                            clients.get(player.clientId)?.connection.send(JSON.stringify(payLoad));
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'startGame',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
                         });
                         console.log(`Game ${gameId} started with ${numPlayers} players`);
                     } else {
                         console.warn(`Cannot start game ${gameId}. Status=${game.status}, Players=${numPlayers}`);
+                    }
+                    break;
+                }
+                case 'playCard': {
+                    const gameId = result.gameId;
+                    const game = games.get(gameId);
+                    if (!game) {
+                        console.error(`Game ${gameId} not found`);
+                        break;
+                    }
+                    const playRes = applyPlay(game, result.clientId, result.cardId, {
+                        aceValue: result.aceValue,
+                        queenDelta: result.queenDelta,
+                    });
+                    if (!playRes.ok) {
+                        console.warn(`playCard rejected: ${playRes.reason}`);
+                        break;
+                    }
+                    // broadcast individualized state
+                    game.players.forEach(player => {
+                        const viewerId = player.clientId;
+                        const payLoad = {
+                            method: 'playCard',
+                            game: redactedGameFor(game, viewerId),
+                        };
+                        clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                    });
+                    break;
+                }
+                case 'restartGame': {
+                    const gameId = result.gameId;
+                    const game = games.get(gameId);
+                    if (!game) {
+                        console.error(`Game ${gameId} not found`);
+                        break;
+                    }
+                    if (result.clientId !== game.leaderClientId) {
+                        console.warn(`Client ${result.clientId} is not leader for restart in game ${gameId}`);
+                        break;
+                    }
+                    // Reset game to lobby baseline
+                    game.score = 0;
+                    game.status = 'lobby';
+                    game.currentPlayerIdx = 0;
+                    game.discardPile = [];
+                    game.drawPile = [];
+                    game.players.forEach(p => {
+                        p.status = 'lobby';
+                        p.hand = [];
+                    });
+                    // Start immediately
+                    if (canStartGame(game)) {
+                        engineStartGame(game);
+                        game.players.forEach(player => {
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'startGame',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                        });
+                    } else {
+                        // Not enough players; broadcast lobby state
+                        game.players.forEach(player => {
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'getGame',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                        });
                     }
                     break;
                 }

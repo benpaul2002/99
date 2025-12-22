@@ -53,7 +53,7 @@ function sizeClasses(size: Size) {
   }
 }
 
-export function Card({ card, size = 'md', faceDown = false }: { card: CardType; size?: Size; faceDown?: boolean }) {
+export function Card({ card, size = 'md', faceDown = false, onClick, disabled = false }: { card: CardType; size?: Size; faceDown?: boolean; onClick?: () => void; disabled?: boolean }) {
   const sizes = sizeClasses(size);
   const symbol = suitSymbol(card.suit);
   const color = suitColorClasses(card.suit);
@@ -76,10 +76,12 @@ export function Card({ card, size = 'md', faceDown = false }: { card: CardType; 
   return (
     <div
       className={cx(
-        'select-none rounded-xl border border-white/20 bg-white text-slate-900 shadow-xl ring-1 ring-black/10 transition-transform duration-150 hover:-translate-y-1',
+        'select-none rounded-xl border border-white/20 bg-white text-slate-900 shadow-xl ring-1 ring-black/10 transition-transform duration-150',
+        disabled ? 'opacity-40 cursor-default' : onClick ? 'cursor-pointer hover:-translate-y-6 hover:shadow-2xl' : '',
         'dark:bg-white/90 dark:text-slate-900',
         sizes.root
       )}
+      onClick={disabled ? undefined : onClick}
     >
       <div className="relative h-full w-full p-2">
         <div className={cx('absolute left-2 top-2 flex flex-col items-center', color)}>
