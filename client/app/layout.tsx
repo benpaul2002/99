@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
+import { SocketProvider } from "./providers/SocketProvider";
+import Link from "next/link";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -27,7 +29,16 @@ export default function RootLayout({
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        {children}
+        <SocketProvider>
+          <div className="pointer-events-none fixed left-10 top-10 z-50">
+            <Link href="/" className="pointer-events-auto select-none text-6xl sm:text-7xl font-black tracking-tight">
+              <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent">
+                99
+              </span>
+            </Link>
+          </div>
+          {children}
+        </SocketProvider>
       </body>
     </html>
   );

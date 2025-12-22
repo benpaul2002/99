@@ -51,11 +51,24 @@ wss.on('connection', (connection) => {
             switch (result.method) {
                 case 'createGame': {
                     const gameId = uuidv4();
-                    const clientId = result.clientId;
                     const game: Game = {
                         id: gameId,
+                        leaderClientId: result.clientId,
                         players: [],
+                        deck: [],
+                        discardPile: [],
+                        drawPile: [],
+                        currentPlayerIdx: 0,
+                        score: 0,
+                        status: 'lobby',
                     };
+                    // Add creator as the first player
+                    game.players.push({
+                        clientId: result.clientId,
+                        name: result.name,
+                        hand: [],
+                        status: 'lobby',
+                    });
                     games.set(game.id, game);
                     const payLoad = {
                         method: 'createGame',
@@ -70,9 +83,15 @@ wss.on('connection', (connection) => {
                     const clientId = result.clientId;
                     const game = games.get(gameId);
                     if (game) {
-                        game.players.push({
-                            clientId: clientId,
-                        });
+                        const alreadyIn = game.players.some(p => p.clientId === clientId);
+                        if (!alreadyIn) {
+                            game.players.push({
+                                clientId: clientId,
+                                name: result.name,
+                                hand: [],
+                                status: 'lobby',
+                            });
+                        }
                         const payLoad = {
                             method: 'joinGame',
                             game: game,
@@ -87,6 +106,40 @@ wss.on('connection', (connection) => {
                     }
                     break;
                 }
+                case 'getGame': {
+                    const gameId = result.gameId;
+                    const game = games.get(gameId);
+                    const payLoad = {
+                        method: 'getGame',
+                        game: game ?? null,
+                    };
+                    connection.send(JSON.stringify(payLoad));
+                    break;
+                }
+                case 'startGame': {
+                    const gameId = result.gameId;
+                    const game = games.get(gameId);
+                    if (!game) {
+                        console.error(`Game ${gameId} not found`);
+                        break;
+                    }
+                    const numPlayers = game.players.length;
+                    if (game.status === 'lobby' && numPlayers >= 2 && numPlayers <= 10 && result.clientId === game.leaderClientId) {
+                        game.status = 'playing';
+                        game.currentPlayerIdx = 0;
+                        const payLoad = {
+                            method: 'startGame',
+                            game: game,
+                        };
+                        game.players.forEach(player => {
+                            clients.get(player.clientId)?.connection.send(JSON.stringify(payLoad));
+                        });
+                        console.log(`Game ${gameId} started with ${numPlayers} players`);
+                    } else {
+                        console.warn(`Cannot start game ${gameId}. Status=${game.status}, Players=${numPlayers}`);
+                    }
+                    break;
+                }
                 default:
                     console.error('Unknown method:', result.method);
                     break;
@@ -98,6 +151,15 @@ wss.on('connection', (connection) => {
     connection.on('close', () => {
         console.log(`Client ${client.id} disconnected. Total clients: ${clients.size}`);
         clients.delete(client.id);
+        games.forEach(game => {
+            const idx = game.players.findIndex(player => player.clientId === client.id);
+            if (idx !== -1) {
+                game.players.splice(idx, 1);
+                if (game.players.length === 0) {
+                    games.delete(game.id);
+                }
+            }
+        });
     });
 
     const payLoad = {
