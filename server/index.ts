@@ -49,11 +49,12 @@ wss.on('connection', (connection) => {
             const result = JSON.parse(message.toString());
             console.log('Message from client:', result);
             switch (result.method) {
-                case 'createGame':
+                case 'createGame': {
                     const gameId = uuidv4();
                     const clientId = result.clientId;
                     const game: Game = {
                         id: gameId,
+                        players: [],
                     };
                     games.set(game.id, game);
                     const payLoad = {
@@ -62,6 +63,33 @@ wss.on('connection', (connection) => {
                     };
                     connection.send(JSON.stringify(payLoad));
                     console.log(`Game ${gameId} created. Total games: ${games.size}`);
+                    break;
+                }
+                case 'joinGame': {
+                    const gameId = result.gameId;
+                    const clientId = result.clientId;
+                    const game = games.get(gameId);
+                    if (game) {
+                        game.players.push({
+                            clientId: clientId,
+                        });
+                        const payLoad = {
+                            method: 'joinGame',
+                            game: game,
+                        };
+                        game.players.forEach(player => {
+                            clients.get(player.clientId)?.connection.send(JSON.stringify(payLoad));
+                        })
+                        console.log(`Client ${clientId} joined game ${gameId}. Total players: ${game.players.length}`);
+                    }
+                    else {
+                        console.error(`Game ${gameId} not found`);
+                    }
+                    break;
+                }
+                default:
+                    console.error('Unknown method:', result.method);
+                    break;
                 }
         } catch (error) {
             console.error('Error parsing message:', error);

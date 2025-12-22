@@ -7,6 +7,7 @@ const WS_URL = 'ws://localhost:8080';
 
 export default function Home() {
   const [clientId, setClientId] = useState<string>('');
+  const [gameId, setGameId] = useState<string>('');
   const [game, setGame] = useState<Game | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -21,6 +22,9 @@ export default function Home() {
           setClientId(response.clientId);
           break;
         case 'createGame':
+          setGame(response.game);
+          break;
+        case 'joinGame':
           setGame(response.game);
           break;
       }
@@ -43,6 +47,22 @@ export default function Home() {
     }
   };
 
+  const handleJoinGame = () => {
+    const ws = wsRef.current;
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      const payLoad = {
+        method: 'joinGame',
+        clientId: clientId,
+        gameId: game?.id ? game.id : gameId,
+      };
+      ws.send(JSON.stringify(payLoad));
+    }
+    else {
+      console.error('WebSocket not open');
+    }
+  }
+
+
   return (
     <div>
       Hello 99
@@ -50,7 +70,23 @@ export default function Home() {
       <div>
         <button onClick={handleCreateGame}>Create Game</button>
       </div>
-      <div>{game?.id}</div>
+      <div>
+        <input type="text" placeholder="Game ID" value={gameId} onChange={(e) => setGameId(e.target.value)} />
+        <button onClick={handleJoinGame}>Join Game</button>
+      </div>
+      {
+        (gameId || game?.id) && (
+          <div>
+            <div>Game ID: {gameId || game?.id}</div>
+            <div>Players: {game?.players.length}</div>
+            <div>
+              {game?.players.map(player => (
+                <div key={player.clientId}>{player.clientId}</div>
+              ))}
+            </div>
+          </div>
+        )
+      }
     </div>
   );
 }
