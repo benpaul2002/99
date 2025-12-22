@@ -9,7 +9,6 @@ export interface Game {
     id: string;
     players: Player[];
     leaderClientId: string;
-    deck: Card[];
     discardPile: Card[];
     drawPile: Card[];
     currentPlayerIdx: number;

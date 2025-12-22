@@ -2,6 +2,9 @@
 
 import { use, useEffect, useMemo, useState } from 'react';
 import { useSocket } from '../../providers/SocketProvider';
+import { Hand } from '../../components/Hand';
+import type { Card as CardType } from '@shared/types';
+import { Card } from '../../components/Card';
 
 export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: gameId } = use(params);
@@ -9,6 +12,9 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
   const [players, setPlayers] = useState<Array<{ clientId: string; name?: string }>>([]);
   const [status, setStatus] = useState<'lobby' | 'playing' | 'finished'>('lobby');
   const [leaderClientId, setLeaderClientId] = useState<string | null>(null);
+  const [myHand, setMyHand] = useState<CardType[]>([]);
+  const [score, setScore] = useState<number>(0);
+  const [lastCard, setLastCard] = useState<CardType | null>(null);
 
   const canStart = useMemo(() => {
     const isLeader = leaderClientId && clientId && leaderClientId === clientId;
@@ -35,6 +41,18 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         if (response.game?.leaderClientId) {
           setLeaderClientId(response.game.leaderClientId);
         }
+        if (clientId && Array.isArray(response.game?.players)) {
+          const me = response.game.players.find((p: any) => p.clientId === clientId);
+          if (me?.hand) setMyHand(me.hand as CardType[]);
+        }
+        if (typeof response.game?.score === 'number') {
+          setScore(response.game.score);
+        }
+        if (Array.isArray(response.game?.discardPile) && response.game.discardPile.length > 0) {
+          setLastCard(response.game.discardPile[response.game.discardPile.length - 1] as CardType);
+        } else {
+          setLastCard(null);
+        }
       }
     };
     socket.addEventListener('message', handler);
@@ -55,13 +73,15 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         <div className="absolute -top-40 left-1/2 h-[60rem] w-[60rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(99,102,241,0.18),rgba(16,185,129,0.06),transparent)] blur-3xl" />
       </div>
 
-      <main className="mx-auto flex min-h-dvh max-w-4xl items-center justify-center px-6">
-        <div className="w-full rounded-2xl border border-white/10 bg-white/5 p-8 shadow-2xl backdrop-blur">
-          <div className="mb-4 flex items-center justify-end">
-            <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
+      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-6 text-white/80">
+        <div className="mb-4 flex items-center justify-between pt-6">
+          <div className="flex items-center gap-2 text-xs">
+            <span className="rounded-md bg-black/40 px-2 py-1 text-white/80">Score: {score}</span>
           </div>
+          <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
+        </div>
 
-          <div className="rounded-xl border border-white/10 bg-black/20 p-6 text-white/70">
+        <div className="flex-1 rounded-xl border border-white/10 bg-black/20 p-6 text-white/80">
             {status === 'lobby' && (
               <>
                 <div className="mb-4">
@@ -103,10 +123,24 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
               </>
             )}
             {status === 'playing' && (
-              <div className="text-sm text-white/80">Game started! (UI coming soon)</div>
+              <div className="grid min-h-[75vh] grid-rows-[3fr_1fr]">
+                <div className="flex items-center justify-center">
+                  {lastCard ? (
+                    <div className="flex flex-col items-center gap-3">
+                      <div className="text-xs text-white/60">Last played</div>
+                      <Card card={lastCard} size="lg" />
+                    </div>
+                  ) : (
+                    <div className="text-sm text-white/50">No cards played yet</div>
+                  )}
+                </div>
+                <div className="border-t border-white/10 pt-4">
+                  <div className="mb-2 text-sm text-white/70">Your hand</div>
+                  <Hand cards={myHand} />
+                </div>
+              </div>
             )}
           </div>
-        </div>
       </main>
     </div>
   );

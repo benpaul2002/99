@@ -5,6 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Game } from '@shared/types.js';
+import { canStartGame, startGame as engineStartGame } from './game/engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -55,7 +56,6 @@ wss.on('connection', (connection) => {
                         id: gameId,
                         leaderClientId: result.clientId,
                         players: [],
-                        deck: [],
                         discardPile: [],
                         drawPile: [],
                         currentPlayerIdx: 0,
@@ -124,9 +124,12 @@ wss.on('connection', (connection) => {
                         break;
                     }
                     const numPlayers = game.players.length;
-                    if (game.status === 'lobby' && numPlayers >= 2 && numPlayers <= 10 && result.clientId === game.leaderClientId) {
-                        game.status = 'playing';
-                        game.currentPlayerIdx = 0;
+                    if (result.clientId !== game.leaderClientId) {
+                        console.warn(`Client ${result.clientId} is not leader for game ${gameId}`);
+                        break;
+                    }
+                    if (canStartGame(game)) {
+                        engineStartGame(game);
                         const payLoad = {
                             method: 'startGame',
                             game: game,
