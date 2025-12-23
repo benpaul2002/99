@@ -5,6 +5,8 @@ import { useSocket } from '../../providers/SocketProvider';
 import { Hand } from '../../components/Hand';
 import type { Card as CardType } from '@shared/types';
 import { Card } from '../../components/Card';
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
 
 export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: gameId } = use(params);
@@ -24,6 +26,7 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
   const [kingSelectOpen, setKingSelectOpen] = useState(false);
   const [kingSelectMessage, setKingSelectMessage] = useState<string | null>(null);
   const [kingRespond, setKingRespond] = useState(false);
+  const [copied, setCopied] = useState(false);
   const isMyTurn = useMemo(() => {
     const current = players[currentPlayerIdx];
     return !!current && current.clientId === clientId;
@@ -131,7 +134,24 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
       <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-6 text-white/80">
         <div className="mb-4 flex items-center justify-between pt-6">
           <div />
-          <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
+          <div className="flex items-center gap-2">
+            <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
+            <button
+              className="hover:cursor-pointer rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:bg-white/10"
+              onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(gameId);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 1500);
+                } catch (e) {
+                  console.error('Clipboard write failed', e);
+                }
+              }}
+              title="Copy game ID"
+            >
+              <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-white/80" />
+            </button>
+          </div>
         </div>
 
         <div className="flex-1 rounded-xl border border-white/10 bg-black/20 p-6 text-white/80">
@@ -192,35 +212,41 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
                 </div>
                 <div className="border-t border-white/10 pt-4">
                   <div className="mb-2 text-sm text-white/70">Your hand</div>
-                  <Hand
-                    cards={myHand}
-                    size="md"
-                    scale={isMyTurn ? 1.25 : 1}
-                    origin={isMyTurn ? 'bottom' : 'top'}
-                    offsetY={28}
-                    isDisabled={(card) => (isMyTurn ? !isCardPlayable(card) : false)}
-                    onCardClick={
-                      isMyTurn
-                        ? (card) => {
-                            const rank = card.rank.toUpperCase();
-                            if (rank === 'A') {
-                              setChoiceModal({ card, type: 'ace' });
-                              return;
+                  {players.find(p => p.clientId === clientId)?.status === 'dead' ? (
+                    <div className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-center text-sm text-rose-300/90">
+                      You have been eliminated
+                    </div>
+                  ) : (
+                    <Hand
+                      cards={myHand}
+                      size="md"
+                      scale={isMyTurn ? 1.25 : 1}
+                      origin={isMyTurn ? 'bottom' : 'top'}
+                      offsetY={28}
+                      isDisabled={(card) => (isMyTurn ? !isCardPlayable(card) : false)}
+                      onCardClick={
+                        isMyTurn
+                          ? (card) => {
+                              const rank = card.rank.toUpperCase();
+                              if (rank === 'A') {
+                                setChoiceModal({ card, type: 'ace' });
+                                return;
+                              }
+                              if (rank === 'Q') {
+                                setChoiceModal({ card, type: 'queen' });
+                                return;
+                              }
+                              sendJson({
+                                method: 'playCard',
+                                gameId,
+                                clientId,
+                                cardId: card.id,
+                              });
                             }
-                            if (rank === 'Q') {
-                              setChoiceModal({ card, type: 'queen' });
-                              return;
-                            }
-                            sendJson({
-                              method: 'playCard',
-                              gameId,
-                              clientId,
-                              cardId: card.id,
-                            });
-                          }
-                        : undefined
-                    }
-                  />
+                          : undefined
+                      }
+                    />
+                  )}
                 </div>
               </div>
             )}
@@ -235,7 +261,7 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
                 <div className="text-white/60">Final score: {score}</div>
                 <div className="mt-2">
                   <button
-                    className="rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-6 py-3 font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/20 transition hover:bg-emerald-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
+                    className="hover:cursor-pointer rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-6 py-3 font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/20 transition hover:bg-emerald-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
                     onClick={() => {
                       if (clientId && gameId) {
                         sendJson({ method: 'restartGame', clientId, gameId });
@@ -330,13 +356,13 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
           const isTurn = idx === currentPlayerIdx;
           const isLeader = p.clientId === leaderClientId;
           return (
-            <li key={p.clientId} className="flex items-center justify-between rounded-lg border border-white/10 bg-black/20 px-3 py-2">
+            <li key={p.clientId} className={`flex items-center justify-between rounded-lg border border-white/10 px-3 py-2 ${p.status === 'dead' ? 'bg-black/10 opacity-60' : 'bg-black/20'}`}>
               <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${isTurn ? 'bg-emerald-400' : 'bg-white/30'}`} />
+                <span className={`h-2 w-2 rounded-full ${p.status === 'dead' ? 'bg-rose-400' : isTurn ? 'bg-emerald-400' : 'bg-white/30'}`} />
                 <span className="text-white/90">{p.name?.trim() || p.clientId.slice(0, 8)}</span>
                 {isLeader && <span className="text-yellow-300" title="Leader" aria-label="Leader">★</span>}
               </div>
-              {isTurn && <span className="text-xs text-emerald-300">Turn</span>}
+              {p.status === 'dead' ? <span className="text-xs text-rose-300">Eliminated</span> : isTurn ? <span className="text-xs text-emerald-300">Turn</span> : null}
             </li>
           );
         })}

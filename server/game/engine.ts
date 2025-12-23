@@ -79,6 +79,8 @@ export function eliminateChainIfNeeded(game: Game): void {
     while (!hasLegalMove(game, game.currentPlayerIdx) && game.status === 'playing') {
         const cur = game.players[game.currentPlayerIdx];
         if (!cur) break;
+        // move eliminated player's hand to discard pile (not on top)
+        discardPlayerHandNotOnTop(game, game.currentPlayerIdx);
         cur.status = 'dead';
         const aliveCount = game.players.filter(p => p.status !== 'dead').length;
         if (aliveCount <= 1) {
@@ -88,6 +90,19 @@ export function eliminateChainIfNeeded(game: Game): void {
         advanceToNextAlive(game);
         safety++;
         if (safety > 100) break;
+    }
+}
+
+export function discardPlayerHandNotOnTop(game: Game, playerIdx: number): void {
+    const player = game.players[playerIdx];
+    if (!player) return;
+    if (!Array.isArray(player.hand) || player.hand.length === 0) return;
+    // Place cards at the bottom of discard pile so they don't appear as the last played
+    // Preserve order by adding from first to last at the start
+    const cardsToDiscard = player.hand.splice(0, player.hand.length);
+    // unshift places at the start; to preserve original order, iterate in reverse
+    for (let i = cardsToDiscard.length - 1; i >= 0; i--) {
+        game.discardPile.unshift(cardsToDiscard[i]!);
     }
 }
 
@@ -113,6 +128,7 @@ export function applyPlay(game: Game, playerClientId: string, cardId: string, op
             return { ok: false, reason: 'Play exceeds 99' };
         } else {
             // No legal moves: eliminate player immediately
+            discardPlayerHandNotOnTop(game, game.currentPlayerIdx);
             current.status = 'dead';
             // Advance to next alive player
             advanceToNextAlive(game);

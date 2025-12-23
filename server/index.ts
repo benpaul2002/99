@@ -5,7 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Game } from '@shared/types.js';
-import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive } from './game/engine.js';
+import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive, discardPlayerHandNotOnTop } from './game/engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -186,7 +186,11 @@ wss.on('connection', (connection) => {
                         const r = card ? String(card.rank).toUpperCase() : '';
                         if (r !== 'K' && r !== '4') {
                             // eliminate target immediately
-                            if (target) target.status = 'dead';
+                            if (target) {
+                                // move target's hand into discard (not on top) before marking dead
+                                discardPlayerHandNotOnTop(game, targetIdx);
+                                target.status = 'dead';
+                            }
                             // restore turn to returnIdx
                             game.currentPlayerIdx = kstatePre.returnIdx;
                             // ensure alive
@@ -236,6 +240,8 @@ wss.on('connection', (connection) => {
                             if (r === 'K') {
                                 const chIdx = game.players.findIndex(p => p.clientId === state.challengerId);
                                 if (chIdx !== -1) {
+                                    // discard challenger hand and eliminate
+                                    discardPlayerHandNotOnTop(game, chIdx);
                                     game.players[chIdx]!.status = 'dead';
                                 }
                             }
@@ -287,6 +293,8 @@ wss.on('connection', (connection) => {
                     const targetHasKing = !!game.players[targetIdx]?.hand.some(c => String(c.rank).toUpperCase() === 'K');
                     const targetHasFour = !!game.players[targetIdx]?.hand.some(c => String(c.rank) === '4');
                     if (!targetHasKing && !targetHasFour) {
+                        // discard target's hand (do not place on top) and eliminate
+                        discardPlayerHandNotOnTop(game, targetIdx);
                         game.players[targetIdx]!.status = 'dead';
                         game.currentPlayerIdx = state.returnIdx;
                         // ensure alive
