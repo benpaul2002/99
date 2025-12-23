@@ -43,19 +43,19 @@ export default function Home() {
   }, [socket, clientId, name, router, sendJson]);
 
   const handleCreateGame = () => {
-    const payLoad = {
-      method: 'createGame',
-      clientId: clientId,
+      const payLoad = {
+        method: 'createGame',
+        clientId: clientId,
       name: name || 'Player',
     };
     sendJson(payLoad);
   };
 
   const handleJoinGame = () => {
-    const payLoad = {
-      method: 'joinGame',
-      clientId: clientId,
-      gameId: game?.id ? game.id : gameId,
+      const payLoad = {
+        method: 'joinGame',
+        clientId: clientId,
+        gameId: game?.id ? game.id : gameId,
       name: name || 'Player',
     };
     sendJson(payLoad);
@@ -82,7 +82,7 @@ export default function Home() {
                 onChange={(e) => setName(e.target.value)}
                 className="w-full bg-transparent px-2 py-1 text-sm outline-none placeholder:text-white/40"
               />
-            </div>
+      </div>
             <div>
               <button
                 onClick={handleCreateGame}

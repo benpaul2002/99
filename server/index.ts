@@ -5,7 +5,7 @@ import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { Game } from '@shared/types.js';
-import { canStartGame, startGame as engineStartGame, applyPlay } from './game/engine.js';
+import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive } from './game/engine.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,6 +29,7 @@ interface Client {
 const clients: Map<string, Client> = new Map();
 
 const games: Map<string, Game> = new Map();
+const kingChallenges: Map<string, { returnIdx: number; challengerId: string; targetId?: string }> = new Map();
 
 function redactedGameFor(game: Game, viewerClientId: string): Game {
     // Deep-ish clone minimal fields; players array cloned with hand redaction
@@ -176,23 +177,146 @@ wss.on('connection', (connection) => {
                         console.error(`Game ${gameId} not found`);
                         break;
                     }
+                    // If a king challenge is active and the target is playing, restrict to K or 4
+                    const kstatePre = kingChallenges.get(gameId);
+                    if (kstatePre && kstatePre.targetId === result.clientId) {
+                        const targetIdx = game.players.findIndex(p => p.clientId === result.clientId);
+                        const target = targetIdx !== -1 ? game.players[targetIdx] : undefined;
+                        const card = target?.hand.find(c => c.id === result.cardId);
+                        const r = card ? String(card.rank).toUpperCase() : '';
+                        if (r !== 'K' && r !== '4') {
+                            // eliminate target immediately
+                            if (target) target.status = 'dead';
+                            // restore turn to returnIdx
+                            game.currentPlayerIdx = kstatePre.returnIdx;
+                            // ensure alive
+                            if (game.players[game.currentPlayerIdx]?.status === 'dead') {
+                                advanceToNextAlive(game);
+                            }
+                            kingChallenges.delete(gameId);
+                            // broadcast state
+                            game.players.forEach(player => {
+                                const viewerId = player.clientId;
+                                const payLoad = {
+                                    method: 'playCard',
+                                    game: redactedGameFor(game, viewerId),
+                                };
+                                clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                            });
+                            break;
+                        }
+                    }
                     const playRes = applyPlay(game, result.clientId, result.cardId, {
                         aceValue: result.aceValue,
                         queenDelta: result.queenDelta,
+                        fourAsZero: !!(kstatePre && kstatePre.targetId === result.clientId),
                     });
                     if (!playRes.ok) {
                         console.warn(`playCard rejected: ${playRes.reason}`);
                         break;
                     }
+                    const last = game.discardPile[game.discardPile.length - 1];
+                    const playedKing = last && String(last.rank).toUpperCase() === 'K';
+                    let challengeJustStarted = false;
+                    if (playedKing && !kstatePre) {
+                        const challengerIdx = game.players.findIndex(p => p.clientId === result.clientId);
+                        if (challengerIdx !== -1) {
+                            // keep turn on challenger and store return index (next alive after challenger)
+                            game.currentPlayerIdx = challengerIdx;
+                            const returnIdx = (challengerIdx + 1) % game.players.length;
+                            kingChallenges.set(gameId, { returnIdx, challengerId: result.clientId });
+                            challengeJustStarted = true;
+                        }
+                    } else {
+                        // If we are in king response and the responder just played, return turn to stored returnIdx
+                        const state = kstatePre || kingChallenges.get(gameId);
+                        if (state && state.targetId === result.clientId) {
+                            // If responder played a King, eliminate challenger
+                            const r = String(last?.rank || '').toUpperCase();
+                            if (r === 'K') {
+                                const chIdx = game.players.findIndex(p => p.clientId === state.challengerId);
+                                if (chIdx !== -1) {
+                                    game.players[chIdx]!.status = 'dead';
+                                }
+                            }
+                            game.currentPlayerIdx = state.returnIdx;
+                            // ensure current points to alive player
+                            if (game.players[game.currentPlayerIdx]?.status === 'dead') {
+                                advanceToNextAlive(game);
+                            }
+                            kingChallenges.delete(gameId);
+                            // After resolving king response, run elimination chain if next cannot move
+                            eliminateChainIfNeeded(game);
+                        }
+                    }
                     // broadcast individualized state
                     game.players.forEach(player => {
                         const viewerId = player.clientId;
-                        const payLoad = {
+                        const payLoad: any = {
                             method: 'playCard',
                             game: redactedGameFor(game, viewerId),
                         };
+                        // Only hint the challenger when they initiate a king challenge
+                        if (challengeJustStarted && viewerId === result.clientId) {
+                            payLoad.kingPlayed = true;
+                        }
                         clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
                     });
+                    break;
+                }
+                case 'kingSelectTarget': {
+                    const gameId = result.gameId;
+                    const game = games.get(gameId);
+                    if (!game) {
+                        console.error(`Game ${gameId} not found`);
+                        break;
+                    }
+                    const state = kingChallenges.get(gameId);
+                    if (!state || state.challengerId !== result.clientId) {
+                        console.warn(`Invalid kingSelectTarget from ${result.clientId}`);
+                        break;
+                    }
+                    const targetId: string = result.targetClientId;
+                    const targetIdx = game.players.findIndex(p => p.clientId === targetId);
+                    if (targetIdx === -1 || game.players[targetIdx]?.status === 'dead') {
+                        console.warn(`Invalid king target ${targetId}`);
+                        break;
+                    }
+                    state.targetId = targetId;
+                    // If target has neither King nor 4, eliminate immediately and return turn
+                    const targetHasKing = !!game.players[targetIdx]?.hand.some(c => String(c.rank).toUpperCase() === 'K');
+                    const targetHasFour = !!game.players[targetIdx]?.hand.some(c => String(c.rank) === '4');
+                    if (!targetHasKing && !targetHasFour) {
+                        game.players[targetIdx]!.status = 'dead';
+                        game.currentPlayerIdx = state.returnIdx;
+                        // ensure alive
+                        if (game.players[game.currentPlayerIdx]?.status === 'dead') {
+                            advanceToNextAlive(game);
+                        }
+                        kingChallenges.delete(gameId);
+                        // After instant elimination, run elimination chain if next cannot move
+                        eliminateChainIfNeeded(game);
+                        // broadcast update (regular state)
+                        game.players.forEach(player => {
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'playCard',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                        });
+                    } else {
+                        // give target the temporary turn
+                        game.currentPlayerIdx = targetIdx;
+                        game.players.forEach(player => {
+                            const viewerId = player.clientId;
+                            const payLoad = {
+                                method: 'kingTurn',
+                                game: redactedGameFor(game, viewerId),
+                            };
+                            clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
+                        });
+                    }
                     break;
                 }
                 case 'restartGame': {

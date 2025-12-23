@@ -33,6 +33,7 @@ export function startGame(game: Game): void {
 type PlayOptions = {
     aceValue?: 1 | 11;
     queenDelta?: -20 | 20;
+    fourAsZero?: boolean;
 };
 
 export function computePlayDelta(rank: string, opts: PlayOptions = {}): number {
@@ -56,13 +57,13 @@ function minDeltaForRank(rank: string): number {
     return Number.isFinite(n) ? n : 0;
 }
 
-function hasLegalMove(game: Game, playerIdx: number): boolean {
+export function hasLegalMove(game: Game, playerIdx: number): boolean {
     const player = game.players[playerIdx];
     if (!player) return false;
     return player.hand.some(card => game.score + minDeltaForRank(card.rank) <= 99);
 }
 
-function advanceToNextAlive(game: Game): void {
+export function advanceToNextAlive(game: Game): void {
     if (game.players.length === 0) return;
     let attempts = 0;
     do {
@@ -70,6 +71,24 @@ function advanceToNextAlive(game: Game): void {
         attempts++;
         if (attempts > game.players.length + 1) break;
     } while (game.players[game.currentPlayerIdx]?.status === 'dead');
+}
+
+export function eliminateChainIfNeeded(game: Game): void {
+    if (game.status !== 'playing') return;
+    let safety = 0;
+    while (!hasLegalMove(game, game.currentPlayerIdx) && game.status === 'playing') {
+        const cur = game.players[game.currentPlayerIdx];
+        if (!cur) break;
+        cur.status = 'dead';
+        const aliveCount = game.players.filter(p => p.status !== 'dead').length;
+        if (aliveCount <= 1) {
+            game.status = 'finished';
+            break;
+        }
+        advanceToNextAlive(game);
+        safety++;
+        if (safety > 100) break;
+    }
 }
 
 export function applyPlay(game: Game, playerClientId: string, cardId: string, opts: PlayOptions = {}): { ok: true } | { ok: false; reason: string } {
@@ -81,7 +100,11 @@ export function applyPlay(game: Game, playerClientId: string, cardId: string, op
     if (idxInHand === -1) return { ok: false, reason: 'Card not in hand' };
 
     const card = current.hand[idxInHand]!;
-    const delta = computePlayDelta(card.rank, opts);
+    let delta = computePlayDelta(card.rank, opts);
+    if (opts.fourAsZero && String(card.rank).toUpperCase() === '4') {
+        delta = 0;
+    }
+    const playedKing = String(card.rank).toUpperCase() === 'K';
 
     // If this play would exceed 99, check if any legal move exists.
     if (game.score + delta > 99) {
@@ -120,23 +143,15 @@ export function applyPlay(game: Game, playerClientId: string, cardId: string, op
     const next = game.drawPile.pop();
     if (next) current.hand.push(next);
 
-    // advance turn (simple round-robin)
-    advanceToNextAlive(game);
-
-    // Optional: auto-eliminate chain if next players have no legal moves
-    let safety = 0;
-    while (!hasLegalMove(game, game.currentPlayerIdx) && game.status === 'playing') {
-        const cur = game.players[game.currentPlayerIdx];
-        if (!cur) break;
-        cur.status = 'dead';
-        const aliveCount = game.players.filter(p => p.status !== 'dead').length;
-        if (aliveCount <= 1) {
-            game.status = 'finished';
-            break;
-        }
+    // If King was played, keep the turn on the same player (special handling later)
+    if (!playedKing) {
+        // advance turn (simple round-robin)
         advanceToNextAlive(game);
-        safety++;
-        if (safety > 100) break;
+    }
+
+    // Auto-eliminate chain if next players have no legal moves (skip when king holds turn)
+    if (!playedKing) {
+        eliminateChainIfNeeded(game);
     }
     return { ok: true };
 }

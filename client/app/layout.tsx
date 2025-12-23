@@ -37,7 +37,7 @@ export default function RootLayout({
               </span>
             </Link>
           </div>
-          {children}
+        {children}
         </SocketProvider>
       </body>
     </html>

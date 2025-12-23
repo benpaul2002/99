@@ -21,6 +21,9 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
     type: 'ace' | 'queen';
   } | null>(null);
   const [currentPlayerIdx, setCurrentPlayerIdx] = useState<number>(0);
+  const [kingSelectOpen, setKingSelectOpen] = useState(false);
+  const [kingSelectMessage, setKingSelectMessage] = useState<string | null>(null);
+  const [kingRespond, setKingRespond] = useState(false);
   const isMyTurn = useMemo(() => {
     const current = players[currentPlayerIdx];
     return !!current && current.clientId === clientId;
@@ -43,6 +46,10 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
 
   const isCardPlayable = (card: CardType): boolean => {
     const deltas = getCardOptionDeltas(card);
+    if (kingRespond) {
+      const r = String(card.rank).toUpperCase();
+      if (r !== 'K' && r !== '4') return false;
+    }
     return deltas.some(isOptionValid);
   };
 
@@ -63,7 +70,7 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
     if (!socket) return;
     const handler = (message: MessageEvent) => {
       const response = JSON.parse(message.data);
-      if ((response.method === 'getGame' || response.method === 'joinGame' || response.method === 'startGame' || response.method === 'playCard') && response.game?.id === gameId) {
+      if ((response.method === 'getGame' || response.method === 'joinGame' || response.method === 'startGame' || response.method === 'playCard' || response.method === 'kingTurn') && response.game?.id === gameId) {
         setPlayers(Array.isArray(response.game.players) ? response.game.players : []);
         if (response.game?.status) {
           setStatus(response.game.status);
@@ -85,6 +92,20 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
           setLastCard(response.game.discardPile[response.game.discardPile.length - 1] as CardType);
         } else {
           setLastCard(null);
+        }
+        if (response.method === 'playCard' && (response as any).kingPlayed) {
+          setKingSelectOpen(true);
+          setKingSelectMessage(null);
+        }
+        if (response.method === 'kingTurn') {
+          // If it's my turn during king response, restrict to K or 4
+          const curIdx = typeof response.game?.currentPlayerIdx === 'number' ? response.game.currentPlayerIdx : -1;
+          const cur = curIdx >= 0 ? response.game.players?.[curIdx] : null;
+          setKingRespond(!!cur && cur.clientId === clientId);
+        }
+        if (response.method === 'playCard') {
+          // Clear restriction after any play; server will re-send kingTurn if needed
+          setKingRespond(false);
         }
       }
     };
@@ -321,6 +342,45 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         })}
       </ul>
     </aside>
+    {kingSelectOpen && (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
+        <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white/10 p-4 text-white/90 backdrop-blur">
+          <div className="mb-3 text-center text-sm text-white/70">You have played a king. Choose a player:</div>
+          <ul className="mb-4 max-h-64 space-y-2 overflow-auto">
+            {players.filter(p => p.clientId !== clientId).map((p) => {
+              const dead = p.status === 'dead';
+              const label = p.name?.trim() || p.clientId.slice(0, 8);
+              return (
+                <li key={p.clientId}>
+                  <button
+                    className={`flex w-full items-center justify-between rounded-lg border border-white/10 px-3 py-2 text-left ${dead ? 'bg-white/5 text-white/40 cursor-not-allowed' : 'bg-white/10 hover:bg-white/15'}`}
+                    disabled={dead}
+                    onClick={() => {
+                      // Send selection to server, then close
+                      sendJson({ method: 'kingSelectTarget', gameId, clientId, targetClientId: p.clientId });
+                      setKingSelectMessage(`Selected ${label}`);
+                      setTimeout(() => setKingSelectOpen(false), 800);
+                    }}
+                  >
+                    <span>{label}</span>
+                    {dead ? <span className="text-xs text-rose-300/70">Eliminated</span> : <span className="text-xs text-white/60">Select</span>}
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+          {kingSelectMessage && <div className="mb-3 text-center text-sm text-emerald-200">{kingSelectMessage}</div>}
+          <div className="text-center">
+            <button
+              className="rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white/60 hover:bg-white/10"
+              onClick={() => setKingSelectOpen(false)}
+            >
+              Close
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
     </>
   );
 }
