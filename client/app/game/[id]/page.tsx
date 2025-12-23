@@ -11,6 +11,11 @@ import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
 export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
   const { id: gameId } = use(params);
   const { socket, sendJson, clientId } = useSocket();
+  const isConnected = typeof window !== 'undefined' && socket?.readyState === WebSocket.OPEN;
+  const [showNameModal, setShowNameModal] = useState<boolean>(true);
+  const [nameInput, setNameInput] = useState<string>('');
+  const [hasJoined, setHasJoined] = useState<boolean>(false);
+  const [joinBlockedMsg, setJoinBlockedMsg] = useState<string | null>(null);
   type UIPlayer = { clientId: string; name?: string; status?: 'lobby' | 'playing' | 'dead' };
   const [players, setPlayers] = useState<UIPlayer[]>([]);
   const [status, setStatus] = useState<'lobby' | 'playing' | 'finished'>('lobby');
@@ -77,6 +82,10 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         setPlayers(Array.isArray(response.game.players) ? response.game.players : []);
         if (response.game?.status) {
           setStatus(response.game.status);
+          if (!hasJoined && (response.game.status === 'playing' || response.game.status === 'finished')) {
+            setJoinBlockedMsg(response.game.status === 'playing' ? 'Game is already in progress. You cannot join now.' : 'Game has finished. You cannot join.');
+            setShowNameModal(true);
+          }
         }
         if (response.game?.leaderClientId) {
           setLeaderClientId(response.game.leaderClientId);
@@ -84,6 +93,11 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         if (clientId && Array.isArray(response.game?.players)) {
           const me = response.game.players.find((p: any) => p.clientId === clientId);
           if (me?.hand) setMyHand(me.hand as CardType[]);
+          // If we're already in the game, reflect joined state and hide name modal
+          if (response.game.players.some((p: any) => p.clientId === clientId)) {
+            setHasJoined(true);
+            setShowNameModal(false);
+          }
         }
         if (typeof response.game?.score === 'number') {
           setScore(response.game.score);
@@ -110,52 +124,83 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
           // Clear restriction after any play; server will re-send kingTurn if needed
           setKingRespond(false);
         }
+        // Handle server-side join denial
+        if (response.method === 'joinDenied' && response.gameId === gameId) {
+          const reason = typeof response.reason === 'string' && response.reason.length > 0
+            ? response.reason
+            : 'Unable to join this game.';
+          setJoinBlockedMsg(reason);
+          setShowNameModal(true);
+          setHasJoined(false);
+        }
       }
     };
+    const onOpen = () => {
+      sendJson({ method: 'getGame', gameId });
+    };
     socket.addEventListener('message', handler);
-    // fetch current game state on mount
-    sendJson({ method: 'getGame', gameId });
-    return () => socket.removeEventListener('message', handler);
-  }, [socket, gameId, sendJson]);
+    if (socket.readyState === WebSocket.OPEN) {
+      onOpen();
+    } else {
+      socket.addEventListener('open', onOpen);
+    }
+    return () => {
+      socket.removeEventListener('message', handler);
+      socket.removeEventListener('open', onOpen);
+    };
+  }, [socket, gameId, sendJson, hasJoined, clientId]);
+
+  const handleConfirmName = () => {
+    const n = nameInput.trim();
+    if (!n || !socket || socket.readyState !== WebSocket.OPEN || !clientId || !gameId) return;
+    sendJson({ method: 'joinGame', gameId, clientId, name: n });
+    setHasJoined(true);
+    setShowNameModal(false);
+  };
 
   const handleStartGame = () => {
     if (!canStart) return;
     sendJson({ method: 'startGame', gameId, clientId });
   };
 
+  const canViewGame = useMemo(() => {
+    return hasJoined || status === 'lobby';
+  }, [hasJoined, status]);
+
   return (
     <>
-    <div className="relative min-h-dvh overflow-hidden">
-      <div className="pointer-events-none absolute inset-0 -z-10">
-        <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/60" />
-        <div className="absolute -top-40 left-1/2 h-[60rem] w-[60rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(99,102,241,0.18),rgba(16,185,129,0.06),transparent)] blur-3xl" />
-      </div>
-
-      <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-6 text-white/80">
-        <div className="mb-4 flex items-center justify-between pt-6">
-          <div />
-          <div className="flex items-center gap-2">
-            <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
-            <button
-              className="hover:cursor-pointer rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:bg-white/10"
-              onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(gameId);
-                  setCopied(true);
-                  setTimeout(() => setCopied(false), 1500);
-                } catch (e) {
-                  console.error('Clipboard write failed', e);
-                }
-              }}
-              title="Copy game ID"
-            >
-              <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-white/80" />
-            </button>
-          </div>
+    {canViewGame && (
+      <div className="relative min-h-dvh overflow-hidden">
+        <div className="pointer-events-none absolute inset-0 -z-10">
+          <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-black/60" />
+          <div className="absolute -top-40 left-1/2 h-[60rem] w-[60rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(99,102,241,0.18),rgba(16,185,129,0.06),transparent)] blur-3xl" />
         </div>
 
-        <div className="flex-1 rounded-xl border border-white/10 bg-black/20 p-6 text-white/80">
-            {status === 'lobby' && (
+        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-6 text-white/80">
+          <div className="mb-4 flex items-center justify-between pt-6">
+            <div />
+            <div className="flex items-center gap-2">
+              <code className="rounded-md bg-black/40 px-2 py-1 text-xs text-white/80">ID: {gameId}</code>
+              <button
+                className="hover:cursor-pointer rounded-md border border-white/10 bg-white/5 px-2 py-1 text-[11px] text-white/70 hover:bg-white/10"
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(gameId);
+                    setCopied(true);
+                    setTimeout(() => setCopied(false), 1500);
+                  } catch (e) {
+                    console.error('Clipboard write failed', e);
+                  }
+                }}
+                title="Copy game ID"
+              >
+                <FontAwesomeIcon icon={copied ? faCheck : faCopy} className="text-white/80" />
+              </button>
+            </div>
+          </div>
+
+          <div className="flex-1 rounded-xl border border-white/10 bg-black/20 p-6 text-white/80">
+              {status === 'lobby' && (
               <>
                 <div className="mb-4">
                   <h2 className="text-lg font-semibold text-white/90">Lobby</h2>
@@ -275,9 +320,10 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
                 </div>
               </div>
             )}
-          </div>
-      </main>
-    </div>
+            </div>
+        </main>
+      </div>
+    )}
     {choiceModal && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
         <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white/10 p-4 text-white/90 backdrop-blur">
@@ -348,26 +394,72 @@ export default function GamePage({ params }: { params: Promise<{ id: string }> }
         </div>
       </div>
     )}
+    {showNameModal && !hasJoined && (
+      <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 px-4">
+        <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white/10 p-4 text-white/90 backdrop-blur">
+          <div className="mb-2 text-center text-sm text-white/80">Enter your name to join</div>
+          {!isConnected && !joinBlockedMsg && (
+            <div className="mb-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 text-[12px] text-white/70">
+              Connecting to server...
+            </div>
+          )}
+          {joinBlockedMsg && (
+            <div className="mb-2 rounded-md border border-rose-400/30 bg-rose-500/10 px-3 py-2 text-[12px] text-rose-200">
+              {joinBlockedMsg}
+            </div>
+          )}
+          <div className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-3 py-2">
+            <input
+              type="text"
+              autoFocus
+              value={nameInput}
+              onChange={(e) => setNameInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  handleConfirmName();
+                }
+              }}
+              placeholder="Your name"
+              className="w-full bg-transparent px-1.5 py-1 text-sm outline-none placeholder:text-white/40"
+              disabled={!!joinBlockedMsg || !isConnected}
+            />
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-2">
+            <button
+              className="hover:cursor-pointer rounded-lg border border-emerald-400/30 bg-emerald-500/10 px-3 py-2 text-sm font-semibold text-emerald-200 ring-1 ring-inset ring-emerald-400/20 hover:bg-emerald-500/15 disabled:opacity-40 disabled:cursor-not-allowed"
+              onClick={handleConfirmName}
+              disabled={!!joinBlockedMsg || !isConnected || !nameInput.trim()}
+            >
+              Join Game
+            </button>
+          </div>
+          <div className="mt-2 text-center text-[11px] text-white/50">Game ID: {gameId}</div>
+        </div>
+      </div>
+    )}
     {/* Players list sidebar (outside main game box) */}
-    <aside className="pointer-events-auto fixed right-6 top-28 z-40 w-64 rounded-xl border border-white/10 bg-white/5 p-4">
-      <div className="mb-3 text-sm font-semibold text-white/80">Players</div>
-      <ul className="space-y-2">
-        {players.map((p, idx) => {
-          const isTurn = idx === currentPlayerIdx;
-          const isLeader = p.clientId === leaderClientId;
-          return (
-            <li key={p.clientId} className={`flex items-center justify-between rounded-lg border border-white/10 px-3 py-2 ${p.status === 'dead' ? 'bg-black/10 opacity-60' : 'bg-black/20'}`}>
-              <div className="flex items-center gap-2">
-                <span className={`h-2 w-2 rounded-full ${p.status === 'dead' ? 'bg-rose-400' : isTurn ? 'bg-emerald-400' : 'bg-white/30'}`} />
-                <span className="text-white/90">{p.name?.trim() || p.clientId.slice(0, 8)}</span>
-                {isLeader && <span className="text-yellow-300" title="Leader" aria-label="Leader">★</span>}
-              </div>
-              {p.status === 'dead' ? <span className="text-xs text-rose-300">Eliminated</span> : isTurn ? <span className="text-xs text-emerald-300">Turn</span> : null}
-            </li>
-          );
-        })}
-      </ul>
-    </aside>
+    {canViewGame && (
+      <aside className="pointer-events-auto fixed right-6 top-28 z-40 w-64 rounded-xl border border-white/10 bg-white/5 p-4">
+        <div className="mb-3 text-sm font-semibold text-white/80">Players</div>
+        <ul className="space-y-2">
+          {players.map((p, idx) => {
+            const isTurn = idx === currentPlayerIdx;
+            const isLeader = p.clientId === leaderClientId;
+            return (
+              <li key={p.clientId} className={`flex items-center justify-between rounded-lg border border-white/10 px-3 py-2 ${p.status === 'dead' ? 'bg-black/10 opacity-60' : 'bg-black/20'}`}>
+                <div className="flex items-center gap-2">
+                  <span className={`h-2 w-2 rounded-full ${p.status === 'dead' ? 'bg-rose-400' : isTurn ? 'bg-emerald-400' : 'bg-white/30'}`} />
+                  <span className="text-white/90">{p.name?.trim() || p.clientId.slice(0, 8)}</span>
+                  {isLeader && <span className="text-yellow-300" title="Leader" aria-label="Leader">★</span>}
+                </div>
+                {p.status === 'dead' ? <span className="text-xs text-rose-300">Eliminated</span> : isTurn ? <span className="text-xs text-emerald-300">Turn</span> : null}
+              </li>
+            );
+          })}
+        </ul>
+      </aside>
+    )}
     {kingSelectOpen && (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4">
         <div className="w-full max-w-sm rounded-xl border border-white/10 bg-white/10 p-4 text-white/90 backdrop-blur">

@@ -103,6 +103,17 @@ wss.on('connection', (connection) => {
                     const clientId = result.clientId;
                     const game = games.get(gameId);
                     if (game) {
+                        // Prevent joining games that are already in progress or finished
+                        if (game.status !== 'lobby') {
+                            const payLoad = {
+                                method: 'joinDenied',
+                                gameId,
+                                reason: game.status === 'playing' ? 'Game is already in progress' : 'Game is finished',
+                            };
+                            connection.send(JSON.stringify(payLoad));
+                            console.log(`Client ${clientId} denied join for game ${gameId} (status=${game.status})`);
+                            break;
+                        }
                         const alreadyIn = game.players.some(p => p.clientId === clientId);
                         if (!alreadyIn) {
                             game.players.push({
@@ -134,11 +145,24 @@ wss.on('connection', (connection) => {
                         const payLoad = { method: 'getGame', game: null };
                         connection.send(JSON.stringify(payLoad));
                     } else {
-                        const payLoad = {
-                            method: 'getGame',
-                            game: redactedGameFor(game, client.id),
-                        };
-                        connection.send(JSON.stringify(payLoad));
+                        const isViewerInGame = game.players.some(p => p.clientId === client.id);
+                        if (!isViewerInGame && game.status !== 'lobby') {
+                            // For non-members when game is not in lobby, only expose minimal info
+                            const payLoad = {
+                                method: 'getGame',
+                                game: {
+                                    id: game.id,
+                                    status: game.status,
+                                },
+                            };
+                            connection.send(JSON.stringify(payLoad));
+                        } else {
+                            const payLoad = {
+                                method: 'getGame',
+                                game: redactedGameFor(game, client.id),
+                            };
+                            connection.send(JSON.stringify(payLoad));
+                        }
                     }
                     break;
                 }
