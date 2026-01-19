@@ -22,3 +22,9 @@ export interface Player {
     hand: Card[];
     status: 'lobby' | 'playing' | 'dead';
 }
+
+export interface KingChallenge {
+    returnIdx: number;
+    challengerId: string;
+    targetId?: string;
+}

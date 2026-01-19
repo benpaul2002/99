@@ -11,6 +11,7 @@ type SocketContextValue = {
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 
 const WS_URL = 'ws://localhost:8080';
+const SESSION_URL = 'http://localhost:8080/session';
 
 export function SocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
@@ -18,22 +19,25 @@ export function SocketProvider({ children }: { children: ReactNode }) {
   const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
-    const ws = new WebSocket(WS_URL);
-    wsRef.current = ws;
-    setSocket(ws);
-    const onMessage = (e: MessageEvent) => {
-      try {
-        const data = JSON.parse(e.data);
-        if (data?.method === 'connect' && typeof data.clientId === 'string') {
-          setClientId(data.clientId);
-        }
-      } catch {}
-    };
-    ws.addEventListener('message', onMessage);
-    return () => {
-      ws.removeEventListener('message', onMessage);
-      ws.close();
-    };
+    (async () => {
+      await fetch(SESSION_URL, { credentials: 'include' });
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+      setSocket(ws);
+      const onMessage = (e: MessageEvent) => {
+        try {
+          const data = JSON.parse(e.data);
+          if (data?.method === 'connect' && typeof data.clientId === 'string') {
+            setClientId(data.clientId);
+          }
+        } catch {}
+      }
+      ws.addEventListener('message', onMessage);
+      return () => {
+        ws.removeEventListener('message', onMessage);
+        ws.close();
+      };
+    })();
   }, []);
 
   const sendJson = (payload: unknown) => {

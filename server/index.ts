@@ -4,8 +4,9 @@ import { v4 as uuidv4 } from 'uuid';
 import express, { Request, Response } from 'express';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import { Game } from '@shared/types.js';
+import type { Game, KingChallenge } from '@shared/types.js';
 import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive, discardPlayerHandNotOnTop } from './game/engine.js';
+import { loadGame, saveGame, loadKingChallenge, saveKingChallenge, deleteKingChallenge, markClientAbsent, clearClientAbsence, reapExpiredAbsences } from './redis.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -15,10 +16,42 @@ const PORT = 8080;
 const app = express();
 const httpServer = http.createServer(app);
 
+function ensureSidCookie(req: Request, res: Response): string {
+	const cookie = req.headers.cookie ?? '';
+	const map = Object.fromEntries(
+		cookie.split(';').map(p => p.trim()).filter(Boolean).map(p => {
+			const i = p.indexOf('=');
+			return i === -1 ? [p, ''] : [p.slice(0, i), decodeURIComponent(p.slice(i + 1))];
+		})
+	);
+	let sid = map.sid;
+	if (!sid) {
+		sid = uuidv4();
+		const secure = process.env.NODE_ENV === 'production' ? '; Secure' : '';
+		res.setHeader('Set-Cookie', `sid=${encodeURIComponent(sid)}; Path=/; HttpOnly; SameSite=Lax${secure}`);
+	}
+	return sid;
+}
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/session', (req: Request, res: Response) => {
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    ensureSidCookie(req, res);
+    res.status(204).end();
+  });
+
+app.options('/session', (req: Request, res: Response) => {
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Allow-Headers', 'content-type');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
+    res.status(204).end();
 });
 
 interface Client {
@@ -27,9 +60,6 @@ interface Client {
 }
 
 const clients: Map<string, Client> = new Map();
-
-const games: Map<string, Game> = new Map();
-const kingChallenges: Map<string, { returnIdx: number; challengerId: string; targetId?: string }> = new Map();
 
 function redactedGameFor(game: Game, viewerClientId: string): Game {
     // Deep-ish clone minimal fields; players array cloned with hand redaction
@@ -54,8 +84,18 @@ httpServer.listen(PORT, () => {
 
 const wss = new WebSocketServer({ server: httpServer });
 
-wss.on('connection', (connection) => {
-    const clientId = uuidv4();
+wss.on('connection', (connection, request) => {
+    const cookie = request.headers.cookie ?? '';
+    const map = Object.fromEntries(
+        cookie.split(';').map(p => p.trim()).filter(Boolean).map(p => {
+            const i = p.indexOf('=');
+            return i === -1 ? [p, ''] : [p.slice(0, i), decodeURIComponent(p.slice(i + 1))];
+        })
+    );
+    const sid = map.sid;
+
+    const clientId = sid || uuidv4();
+    console.log('WS connect sid=', sid, 'clientId=', clientId);
     const client: Client = {
         id: clientId,
         connection: connection,
@@ -63,7 +103,7 @@ wss.on('connection', (connection) => {
     clients.set(client.id, client);
     console.log(`Client ${clientId} connected. Total clients: ${clients.size}`);
     
-    connection.on('message', (message: RawData) => {
+    connection.on('message', async (message: RawData) => {
         try {
             const result = JSON.parse(message.toString());
             console.log('Message from client:', result);
@@ -72,7 +112,7 @@ wss.on('connection', (connection) => {
                     const gameId = uuidv4();
                     const game: Game = {
                         id: gameId,
-                        leaderClientId: result.clientId,
+                        leaderClientId: client.id,
                         players: [],
                         discardPile: [],
                         drawPile: [],
@@ -82,29 +122,33 @@ wss.on('connection', (connection) => {
                     };
                     // Add creator as the first player
                     game.players.push({
-                        clientId: result.clientId,
+                        clientId: client.id,
                         name: result.name,
                         hand: [],
                         status: 'lobby',
                     });
-                    games.set(game.id, game);
-                    {
-                        const payLoad = {
-                            method: 'createGame',
-                            game: redactedGameFor(game, client.id),
-                        };
-                        connection.send(JSON.stringify(payLoad));
-                    }
-                    console.log(`Game ${gameId} created. Total games: ${games.size}`);
+                    await saveGame(game);
+                    console.log(`Game ${gameId} created.`);
+                    const payLoad = {
+                        method: 'createGame', 
+                        game: redactedGameFor(game, client.id),
+                    };
+                    connection.send(JSON.stringify(payLoad));
                     break;
                 }
                 case 'joinGame': {
                     const gameId = result.gameId;
-                    const clientId = result.clientId;
-                    const game = games.get(gameId);
+                    const clientId = client.id;
+                    const game = await loadGame(gameId);
                     if (game) {
+                        const reaped = await reapExpiredAbsences(game);
+                        if (reaped) {
+                            await saveGame(game);
+                        }
                         // Prevent joining games that are already in progress or finished
-                        if (game.status !== 'lobby') {
+                        const alreadyIn = game.players.some(p => p.clientId === clientId);
+                        console.log('joinGame', { gameId, clientId, status: game.status, alreadyIn, players: game.players.map(p=>p.clientId) });
+                        if (game.status !== 'lobby' && !alreadyIn) {
                             const payLoad = {
                                 method: 'joinDenied',
                                 gameId,
@@ -114,15 +158,16 @@ wss.on('connection', (connection) => {
                             console.log(`Client ${clientId} denied join for game ${gameId} (status=${game.status})`);
                             break;
                         }
-                        const alreadyIn = game.players.some(p => p.clientId === clientId);
                         if (!alreadyIn) {
                             game.players.push({
-                                clientId: clientId,
+                                clientId: client.id,
                                 name: result.name,
                                 hand: [],
                                 status: 'lobby',
                             });
                         }
+                        await clearClientAbsence(gameId, clientId);
+                        await saveGame(game);
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
                             const payLoad = {
@@ -140,11 +185,15 @@ wss.on('connection', (connection) => {
                 }
                 case 'getGame': {
                     const gameId = result.gameId;
-                    const game = games.get(gameId);
+                    const game = await loadGame(gameId);
                     if (!game) {
                         const payLoad = { method: 'getGame', game: null };
                         connection.send(JSON.stringify(payLoad));
                     } else {
+                        const reaped = await reapExpiredAbsences(game);
+                        if (reaped) {
+                            await saveGame(game);
+                        }
                         const isViewerInGame = game.players.some(p => p.clientId === client.id);
                         if (!isViewerInGame && game.status !== 'lobby') {
                             // For non-members when game is not in lobby, only expose minimal info
@@ -168,18 +217,23 @@ wss.on('connection', (connection) => {
                 }
                 case 'startGame': {
                     const gameId = result.gameId;
-                    const game = games.get(gameId);
+                    const game = await loadGame(gameId);
                     if (!game) {
                         console.error(`Game ${gameId} not found`);
                         break;
                     }
+                    const reaped = await reapExpiredAbsences(game);
+                    if (reaped) {
+                        await saveGame(game);
+                    }
                     const numPlayers = game.players.length;
-                    if (result.clientId !== game.leaderClientId) {
+                    if (client.id !== game.leaderClientId) {
                         console.warn(`Client ${result.clientId} is not leader for game ${gameId}`);
                         break;
                     }
                     if (canStartGame(game)) {
                         engineStartGame(game);
+                        await saveGame(game);
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
                             const payLoad = {
@@ -196,15 +250,19 @@ wss.on('connection', (connection) => {
                 }
                 case 'playCard': {
                     const gameId = result.gameId;
-                    const game = games.get(gameId);
+                    const game = await loadGame(gameId);
                     if (!game) {
                         console.error(`Game ${gameId} not found`);
                         break;
                     }
+                    const reaped = await reapExpiredAbsences(game);
+                    if (reaped) {
+                        await saveGame(game);
+                    }
                     // If a king challenge is active and the target is playing, restrict to K or 4
-                    const kstatePre = kingChallenges.get(gameId);
-                    if (kstatePre && kstatePre.targetId === result.clientId) {
-                        const targetIdx = game.players.findIndex(p => p.clientId === result.clientId);
+                    const kstatePre = await loadKingChallenge(gameId);
+                    if (kstatePre && kstatePre.targetId === client.id) {
+                        const targetIdx = game.players.findIndex(p => p.clientId === client.id);
                         const target = targetIdx !== -1 ? game.players[targetIdx] : undefined;
                         const card = target?.hand.find(c => c.id === result.cardId);
                         const r = card ? String(card.rank).toUpperCase() : '';
@@ -221,7 +279,9 @@ wss.on('connection', (connection) => {
                             if (game.players[game.currentPlayerIdx]?.status === 'dead') {
                                 advanceToNextAlive(game);
                             }
-                            kingChallenges.delete(gameId);
+                            await deleteKingChallenge(gameId);
+
+                            await saveGame(game);
                             // broadcast state
                             game.players.forEach(player => {
                                 const viewerId = player.clientId;
@@ -234,10 +294,10 @@ wss.on('connection', (connection) => {
                             break;
                         }
                     }
-                    const playRes = applyPlay(game, result.clientId, result.cardId, {
+                    const playRes = applyPlay(game, client.id, result.cardId, {
                         aceValue: result.aceValue,
                         queenDelta: result.queenDelta,
-                        fourAsZero: !!(kstatePre && kstatePre.targetId === result.clientId),
+                        fourAsZero: !!(kstatePre && kstatePre.targetId === client.id),
                     });
                     if (!playRes.ok) {
                         console.warn(`playCard rejected: ${playRes.reason}`);
@@ -247,18 +307,18 @@ wss.on('connection', (connection) => {
                     const playedKing = last && String(last.rank).toUpperCase() === 'K';
                     let challengeJustStarted = false;
                     if (playedKing && !kstatePre) {
-                        const challengerIdx = game.players.findIndex(p => p.clientId === result.clientId);
+                        const challengerIdx = game.players.findIndex(p => p.clientId === client.id);
                         if (challengerIdx !== -1) {
                             // keep turn on challenger and store return index (next alive after challenger)
                             game.currentPlayerIdx = challengerIdx;
                             const returnIdx = (challengerIdx + 1) % game.players.length;
-                            kingChallenges.set(gameId, { returnIdx, challengerId: result.clientId });
+                            await saveKingChallenge(gameId, { returnIdx, challengerId: client.id });
                             challengeJustStarted = true;
                         }
                     } else {
                         // If we are in king response and the responder just played, return turn to stored returnIdx
-                        const state = kstatePre || kingChallenges.get(gameId);
-                        if (state && state.targetId === result.clientId) {
+                        const state = kstatePre || await loadKingChallenge(gameId);
+                        if (state && state.targetId === client.id) {
                             // If responder played a King, eliminate challenger
                             const r = String(last?.rank || '').toUpperCase();
                             if (r === 'K') {
@@ -274,11 +334,12 @@ wss.on('connection', (connection) => {
                             if (game.players[game.currentPlayerIdx]?.status === 'dead') {
                                 advanceToNextAlive(game);
                             }
-                            kingChallenges.delete(gameId);
+                            await deleteKingChallenge(gameId);
                             // After resolving king response, run elimination chain if next cannot move
                             eliminateChainIfNeeded(game);
                         }
                     }
+                    await saveGame(game);
                     // broadcast individualized state
                     game.players.forEach(player => {
                         const viewerId = player.clientId;
@@ -287,7 +348,7 @@ wss.on('connection', (connection) => {
                             game: redactedGameFor(game, viewerId),
                         };
                         // Only hint the challenger when they initiate a king challenge
-                        if (challengeJustStarted && viewerId === result.clientId) {
+                        if (challengeJustStarted && viewerId === client.id) {
                             payLoad.kingPlayed = true;
                         }
                         clients.get(viewerId)?.connection.send(JSON.stringify(payLoad));
@@ -296,14 +357,18 @@ wss.on('connection', (connection) => {
                 }
                 case 'kingSelectTarget': {
                     const gameId = result.gameId;
-                    const game = games.get(gameId);
+                    const game = await loadGame(gameId);
                     if (!game) {
                         console.error(`Game ${gameId} not found`);
                         break;
                     }
-                    const state = kingChallenges.get(gameId);
-                    if (!state || state.challengerId !== result.clientId) {
-                        console.warn(`Invalid kingSelectTarget from ${result.clientId}`);
+                    const reaped = await reapExpiredAbsences(game);
+                    if (reaped) {
+                        await saveGame(game);
+                    }
+                    const state = await loadKingChallenge(gameId);
+                    if (!state || state.challengerId !== client.id) {
+                        console.warn(`Invalid kingSelectTarget from ${client.id}`);
                         break;
                     }
                     const targetId: string = result.targetClientId;
@@ -325,9 +390,11 @@ wss.on('connection', (connection) => {
                         if (game.players[game.currentPlayerIdx]?.status === 'dead') {
                             advanceToNextAlive(game);
                         }
-                        kingChallenges.delete(gameId);
+                        await deleteKingChallenge(gameId);
                         // After instant elimination, run elimination chain if next cannot move
                         eliminateChainIfNeeded(game);
+
+                        await saveGame(game);
                         // broadcast update (regular state)
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
@@ -340,6 +407,7 @@ wss.on('connection', (connection) => {
                     } else {
                         // give target the temporary turn
                         game.currentPlayerIdx = targetIdx;
+                        await saveGame(game);
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
                             const payLoad = {
@@ -353,12 +421,16 @@ wss.on('connection', (connection) => {
                 }
                 case 'restartGame': {
                     const gameId = result.gameId;
-                    const game = games.get(gameId);
+                    const game = await loadGame(gameId);
                     if (!game) {
                         console.error(`Game ${gameId} not found`);
                         break;
                     }
-                    if (result.clientId !== game.leaderClientId) {
+                    const reaped = await reapExpiredAbsences(game);
+                    if (reaped) {
+                        await saveGame(game);
+                    }
+                    if (client.id !== game.leaderClientId) {
                         console.warn(`Client ${result.clientId} is not leader for restart in game ${gameId}`);
                         break;
                     }
@@ -375,6 +447,7 @@ wss.on('connection', (connection) => {
                     // Start immediately
                     if (canStartGame(game)) {
                         engineStartGame(game);
+                        await saveGame(game);
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
                             const payLoad = {
@@ -385,6 +458,7 @@ wss.on('connection', (connection) => {
                         });
                     } else {
                         // Not enough players; broadcast lobby state
+                        await saveGame(game);
                         game.players.forEach(player => {
                             const viewerId = player.clientId;
                             const payLoad = {
@@ -404,18 +478,22 @@ wss.on('connection', (connection) => {
             console.error('Error parsing message:', error);
         }
     });
-    connection.on('close', () => {
+    connection.on('close', async () => {
         console.log(`Client ${client.id} disconnected. Total clients: ${clients.size}`);
         clients.delete(client.id);
-        games.forEach(game => {
-            const idx = game.players.findIndex(player => player.clientId === client.id);
-            if (idx !== -1) {
-                game.players.splice(idx, 1);
-                if (game.players.length === 0) {
-                    games.delete(game.id);
-                }
-            }
-        });
+        await markClientAbsent(client.id);
+        // const games = await retrieveAllGames();
+        // for (const game of games) {
+        //     const idx = game.players.findIndex(player => player.clientId === client.id);
+        //     if (idx !== -1) {
+        //         game.players.splice(idx, 1);
+        //         if (game.players.length === 0) {
+        //             await deleteGame(game.id);
+        //         } else {
+        //             await saveGame(game);
+        //         }
+        //     }
+        // }
     });
 
     const payLoad = {
