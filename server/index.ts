@@ -11,7 +11,7 @@ import { loadGame, saveGame, loadKingChallenge, saveKingChallenge, deleteKingCha
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 8080;
+const PORT = Number(process.env.PORT) || 8080;
 
 const app = express();
 const httpServer = http.createServer(app);
@@ -35,19 +35,21 @@ function ensureSidCookie(req: Request, res: Response): string {
 
 app.use(express.static(path.join(__dirname, 'public')));
 
+const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
+
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
 app.get('/session', (req: Request, res: Response) => {
-    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Origin', WEB_ORIGIN);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     ensureSidCookie(req, res);
     res.status(204).end();
   });
 
 app.options('/session', (req: Request, res: Response) => {
-    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:3000');
+    res.setHeader('Access-Control-Allow-Origin', WEB_ORIGIN);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.setHeader('Access-Control-Allow-Headers', 'content-type');
     res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');

@@ -10,8 +10,8 @@ type SocketContextValue = {
 
 const SocketContext = createContext<SocketContextValue | undefined>(undefined);
 
-const WS_URL = 'ws://localhost:8080';
-const SESSION_URL = 'http://localhost:8080/session';
+const WS_URL = process.env.NEXT_PUBLIC_WS_URL!;
+const SESSION_URL = process.env.NEXT_PUBLIC_SESSION_URL!;
 
 export function SocketProvider({ children }: { children: ReactNode }) {
   const [socket, setSocket] = useState<WebSocket | null>(null);
