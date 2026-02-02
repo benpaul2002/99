@@ -80,8 +80,8 @@ function redactedGameFor(game: Game, viewerClientId: string): Game {
     };
 }
 
-httpServer.listen(PORT, () => {
-    console.log(`Server is running on port ${PORT}`);
+httpServer.listen(PORT, "0.0.0.0", () => {
+    console.log(`Listening on 0.0.0.0:${PORT}`);
 });
 
 const wss = new WebSocketServer({ server: httpServer });
