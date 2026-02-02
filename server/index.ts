@@ -37,6 +37,9 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
+console.log('SERVER_PORT=', PORT);
+console.log('WEB_ORIGIN=', WEB_ORIGIN);
+
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
