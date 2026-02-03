@@ -1,6 +1,7 @@
 'use client';
 
-import { use, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { useParams } from 'next/navigation';
 import { useSocket } from '../../providers/SocketProvider';
 import { Hand } from '../../components/Hand';
 import type { Card as CardType } from '@shared/types';
@@ -8,8 +9,9 @@ import { Card } from '../../components/Card';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faCopy, faCheck } from '@fortawesome/free-solid-svg-icons';
 
-export default function GamePage({ params }: { params: Promise<{ id: string }> }) {
-  const { id: gameId } = use(params);
+export default function GamePage() {
+  const params = useParams<{ id: string }>();
+  const gameId = params.id;
   const { socket, sendJson, clientId } = useSocket();
   const isConnected = typeof window !== 'undefined' && socket?.readyState === WebSocket.OPEN;
   const [showNameModal, setShowNameModal] = useState<boolean>(true);
