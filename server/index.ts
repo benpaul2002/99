@@ -8,9 +8,6 @@ import type { Game, KingChallenge } from '@shared/types.js';
 import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive, discardPlayerHandNotOnTop } from './game/engine.js';
 import { loadGame, saveGame, loadKingChallenge, saveKingChallenge, deleteKingChallenge, markClientAbsent, clearClientAbsence, reapExpiredAbsences } from './redis.js';
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 const PORT = Number(process.env.PORT) || 8080;
 
 const app = express();
@@ -33,12 +30,7 @@ function ensureSidCookie(req: Request, res: Response): string {
 	return sid;
 }
 
-app.use(express.static(path.join(__dirname, 'public')));
-
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
-
-console.log('SERVER_PORT=', PORT);
-console.log('WEB_ORIGIN=', WEB_ORIGIN);
 
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, 'public', 'index.html'));
