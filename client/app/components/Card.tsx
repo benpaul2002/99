@@ -1,6 +1,6 @@
 'use client';
 
-import { Card as CardType } from '@shared/types';
+import type { Card as CardType } from '@shared/types';
 
 function cx(...classes: Array<string | false | undefined | null>) {
   return classes.filter(Boolean).join(' ');

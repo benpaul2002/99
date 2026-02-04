@@ -1,6 +1,6 @@
 'use client';
 
-import { Card as CardType } from '@shared/types';
+import type { Card as CardType } from '@shared/types';
 import { Card } from './Card';
 
 type Size = 'sm' | 'md' | 'lg';

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from "react";
-import { Game } from "@shared/types";
+import type { Game } from "@shared/types";
 import { useSocket } from "./providers/SocketProvider";
 import { useRouter } from "next/navigation";
 
