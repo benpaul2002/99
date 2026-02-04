@@ -32,12 +32,6 @@ function ensureSidCookie(req: Request, res: Response): string {
 
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
-console.log('WEB_ORIGIN=', WEB_ORIGIN);
-console.log('NEXT_PUBLIC_WS_URL=', process.env.NEXT_PUBLIC_WS_URL);
-console.log('NEXT_PUBLIC_SESSION_URL=', process.env.NEXT_PUBLIC_SESSION_URL);
-console.log('REDIS_URL=', process.env.REDIS_URL);
-console.log('NODE_ENV=', process.env.NODE_ENV);
-
 app.get('/', (req: Request, res: Response) => {
     res.redirect(WEB_ORIGIN);
 });
