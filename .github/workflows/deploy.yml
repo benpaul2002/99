@@ -54,9 +54,11 @@ jobs:
             cd ~/99
             git pull origin main
             cd server
-            npm install --include=dev
-            pm2 reload 99-server --update-env
+            npm install
+            npx tsc
+            pm2 delete 99-server || true
+            pm2 start dist/index.js --name 99-server
             cd ../client
-            npm install --include=dev
+            npm install
             npm run build
             pm2 reload 99-client --update-env
