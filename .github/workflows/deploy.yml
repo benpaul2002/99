@@ -57,8 +57,9 @@ jobs:
             npm install
             npx tsc
             ls -R dist
+            pm2 stop 99-server || true
             pm2 delete 99-server || true
-            pm2 start dist/index.js --name 99-server --cwd /home/ubuntu/99/server
+            pm2 start dist/server/index.js --name 99-server --cwd /home/ubuntu/99/server
             cd ../client
             npm install
             npm run build
