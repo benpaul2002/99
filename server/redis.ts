@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import type { Game, KingChallenge } from '@shared/types.js';
 import { Redis } from 'ioredis';
 
