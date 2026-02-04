@@ -3,8 +3,7 @@ import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { v4 as uuidv4 } from 'uuid';
 import express, { Request, Response } from 'express';
 import path from 'path';
-import { fileURLToPath } from 'url';
-import type { Game, KingChallenge } from '@shared/types.js';
+import type { Game } from '@shared/types.js';
 import { canStartGame, startGame as engineStartGame, applyPlay, eliminateChainIfNeeded, advanceToNextAlive, discardPlayerHandNotOnTop } from './game/engine.js';
 import { loadGame, saveGame, loadKingChallenge, saveKingChallenge, deleteKingChallenge, markClientAbsent, clearClientAbsence, reapExpiredAbsences } from './redis.js';
 
@@ -33,7 +32,7 @@ function ensureSidCookie(req: Request, res: Response): string {
 const WEB_ORIGIN = process.env.WEB_ORIGIN ?? 'http://localhost:3000';
 
 app.get('/', (req: Request, res: Response) => {
-    res.sendFile(path.join(__dirname, 'public', 'index.html'));
+    res.redirect(WEB_ORIGIN);
 });
 
 app.get('/session', (req: Request, res: Response) => {
