@@ -59,4 +59,4 @@ jobs:
             cd ../client
             npm install --include=dev
             npm run build
-            pm2 reload client --update-env
+            pm2 reload 99-client --update-env
