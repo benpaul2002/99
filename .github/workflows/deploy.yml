@@ -66,6 +66,12 @@ jobs:
             pm2 delete 99-server || true
             pm2 start dist/server/index.js --name 99-server --cwd /home/ubuntu/99/server
             cd ../client
+            echo "WEB_ORIGIN=${{ secrets.WEB_ORIGIN }}" > .env
+            echo "NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}" >> .env
+            echo "NEXT_PUBLIC_SESSION_URL=${{ secrets.NEXT_PUBLIC_SESSION_URL }}" >> .env
+            echo "REDIS_URL=${{ secrets.REDIS_URL }}" >> .env
+            echo "PORT=8080" >> .env
+            echo "NODE_ENV=production" >> .env
             npm install
             npm run build
             pm2 reload 99-client --update-env
