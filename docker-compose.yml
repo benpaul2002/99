@@ -1,0 +1,27 @@
+services:
+  redis:
+    image: redis:alpine
+    container_name: 99-redis
+    restart: always
+
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: 99-server
+    restart: always
+    depends_on:
+      - redis
+    ports:
+      - "8080:8080"
+      
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    container_name: 99-client
+    restart: always
+    depends_on:
+      - server
+    ports:
+      - "3000:3000"
