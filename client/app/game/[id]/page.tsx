@@ -244,8 +244,15 @@ export default function GamePage() {
             )}
             {status === 'playing' && (
               <div className="grid min-h-[75vh] grid-rows-[auto_1fr_auto] gap-4">
-                <div className="mt-2 text-center text-2xl font-bold text-white/90">
-                  Score: {score}
+                <div className="mt-2 text-center">
+                  <div className="text-2xl font-bold text-white/90">
+                    Score: {score}
+                  </div>
+                  {kingRespond && (
+                    <div className="mt-1 text-[13px] font-medium text-amber-300">
+                      You have been targeted. Play a King (to kill the challenger) or 4 (to defend yourself).
+                    </div>
+                  )}
                 </div>
                 <div className="flex items-center justify-center">
                   {lastCard ? (
