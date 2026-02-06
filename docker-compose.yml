@@ -15,19 +15,13 @@ services:
     restart: always
 
   server:
-    build:
-      context: .
-      dockerfile: server/Dockerfile
-    container_name: 99-server
+    image: ghcr.io/benpaul2002/99/server:latest
     restart: always
     depends_on:
       - redis
-      
+
   client:
-    build:
-      context: .
-      dockerfile: client/Dockerfile
-    container_name: 99-client
+    image: ghcr.io/benpaul2002/99/client:latest
     restart: always
     depends_on:
       - server
