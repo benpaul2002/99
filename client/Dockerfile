@@ -8,7 +8,6 @@ WORKDIR /app/client
 RUN npm install
 
 COPY client/ ./
-COPY client/.env .env
 
 ARG NEXT_PUBLIC_WS_URL
 ARG NEXT_PUBLIC_SESSION_URL
