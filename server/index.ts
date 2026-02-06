@@ -329,6 +329,11 @@ wss.on('connection', (connection, request) => {
                                     // discard challenger hand and eliminate
                                     discardPlayerHandNotOnTop(game, chIdx);
                                     game.players[chIdx]!.status = 'dead';
+                                    // If only one player remains alive after elimination, finish the game
+                                    const aliveCountAfter = game.players.filter(p => p.status !== 'dead').length;
+                                    if (aliveCountAfter <= 1) {
+                                        game.status = 'finished';
+                                    }
                                 }
                             }
                             game.currentPlayerIdx = state.returnIdx;
