@@ -440,8 +440,8 @@ export default function GamePage() {
         </div>
       </div>
     )}
-    {/* Players list sidebar (outside main game box) */}
-    {canViewGame && (
+    {/* Players list sidebar (outside main game box) - only during gameplay */}
+    {canViewGame && status === 'playing' && (
       <aside className="pointer-events-auto fixed right-6 top-28 z-40 w-64 rounded-xl border border-white/10 bg-white/5 p-4">
         <div className="mb-3 text-sm font-semibold text-white/80">Players</div>
         <ul className="space-y-2">
