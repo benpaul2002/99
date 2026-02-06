@@ -147,20 +147,6 @@ export function applyPlay(game: Game, playerClientId: string, cardId: string, op
     current.hand.splice(idxInHand, 1);
     game.discardPile.push(card);
 
-    // If score is exactly 99 after the play, end the game immediately.
-    // Declare the current player as the winner by marking all others as dead.
-    if (game.score === 99) {
-        game.status = 'finished';
-        for (let i = 0; i < game.players.length; i++) {
-            if (i !== game.currentPlayerIdx && game.players[i]) {
-                if (game.players[i]!.status !== 'dead') {
-                    game.players[i]!.status = 'dead';
-                }
-            }
-        }
-        return { ok: true };
-    }
-
     // draw replacement
     // If draw pile is empty, recycle discard pile except the top card
     if (game.drawPile.length === 0 && game.discardPile.length > 1) {
