@@ -13,8 +13,6 @@ RUN npx tsc
 FROM node:20-alpine
 WORKDIR /app/server
 
-COPY server/.env .env
-
 COPY --from=builder /app/server/package*.json ./
 RUN npm install --omit=dev
 COPY --from=builder /app/server/dist ./dist
