@@ -2,6 +2,8 @@ import 'dotenv/config';
 import type { Game, KingChallenge } from '@shared/types.js';
 import { Redis } from 'ioredis';
 
+console.log('REDIS_URL', process.env.REDIS_URL);
+
 export const redis = new Redis(process.env.REDIS_URL ?? 'redis://127.0.0.1:6379');
 
 redis.on('error', (err: unknown) => {

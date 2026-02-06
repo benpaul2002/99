@@ -14,13 +14,6 @@ export default function Home() {
   const isConnected = typeof window !== 'undefined' && socket?.readyState === WebSocket.OPEN;
   const router = useRouter();
 
-  console.log('NEXT_PUBLIC_WS_URL', process.env.NEXT_PUBLIC_WS_URL);
-  console.log('NEXT_PUBLIC_SESSION_URL', process.env.NEXT_PUBLIC_SESSION_URL);
-  console.log('REDIS_URL', process.env.REDIS_URL);
-  console.log('PORT', process.env.PORT);
-  console.log('NODE_ENV', process.env.NODE_ENV);
-  console.log('WEB_ORIGIN', process.env.WEB_ORIGIN);
-
   useEffect(() => {
     if (!socket) return;
     const handler = (message: MessageEvent) => {

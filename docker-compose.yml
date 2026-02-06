@@ -19,6 +19,8 @@ services:
     restart: always
     depends_on:
       - redis
+    env_file:
+      - server/.env
 
   client:
     image: ghcr.io/benpaul2002/99/client:latest
