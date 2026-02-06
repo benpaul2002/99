@@ -20,4 +20,4 @@ RUN npm install --omit=dev
 COPY --from=builder /app/server/dist ./dist
 
 EXPOSE 8080
-CMD ["node", "dist/index.js"]
+CMD ["node", "dist/server/index.js"]
