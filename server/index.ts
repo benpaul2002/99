@@ -375,6 +375,8 @@ wss.on('connection', (connection, request) => {
                         break;
                     }
                     state.targetId = targetId;
+                    // Persist the target so subsequent plays recognize king response context
+                    await saveKingChallenge(gameId, state);
                     // If target has neither King nor 4, eliminate immediately and return turn
                     const targetHasKing = !!game.players[targetIdx]?.hand.some(c => String(c.rank).toUpperCase() === 'K');
                     const targetHasFour = !!game.players[targetIdx]?.hand.some(c => String(c.rank) === '4');

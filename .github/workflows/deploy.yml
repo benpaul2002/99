@@ -104,7 +104,7 @@ jobs:
             WEB_ORIGIN=${{ secrets.WEB_ORIGIN }}
             REDIS_URL=redis://redis:6379
             PORT=8080
-            NODE_ENV=production
+            NODE_ENV=development
             EOF
 
             cat <<EOF > client/.env
