@@ -178,7 +178,7 @@ export default function GamePage() {
           <div className="absolute -top-40 left-1/2 h-[60rem] w-[60rem] -translate-x-1/2 rounded-full bg-[radial-gradient(closest-side,rgba(99,102,241,0.18),rgba(16,185,129,0.06),transparent)] blur-3xl" />
         </div>
 
-        <main className="mx-auto flex min-h-dvh w-full max-w-7xl flex-col px-6 text-white/80">
+        <main className="mx-auto flex min-h-dvh w-full max-w-6xl flex-col px-6 text-white/80">
           <div className="mb-4 flex items-center justify-between pt-6">
             <div />
             <div className="flex items-center gap-2">
