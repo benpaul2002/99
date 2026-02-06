@@ -3,10 +3,11 @@ WORKDIR /app
 
 COPY client/package*.json ./
 RUN npm install
+
 COPY client/ ./
 COPY shared/ ./shared/
-
 COPY client/.env .env
+
 RUN npm run build
 
 FROM node:20-alpine
