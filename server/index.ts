@@ -276,6 +276,11 @@ wss.on('connection', (connection, request) => {
                             if (game.players[game.currentPlayerIdx]?.status === 'dead') {
                                 advanceToNextAlive(game);
                             }
+                            // If only one player remains alive after elimination, finish the game
+                            const aliveCountAfter = game.players.filter(p => p.status !== 'dead').length;
+                            if (aliveCountAfter <= 1) {
+                                game.status = 'finished';
+                            }
                             await deleteKingChallenge(gameId);
 
                             await saveGame(game);
@@ -388,6 +393,11 @@ wss.on('connection', (connection, request) => {
                         // ensure alive
                         if (game.players[game.currentPlayerIdx]?.status === 'dead') {
                             advanceToNextAlive(game);
+                        }
+                        // If only one player remains alive after elimination, finish the game
+                        const aliveCountAfter = game.players.filter(p => p.status !== 'dead').length;
+                        if (aliveCountAfter <= 1) {
+                            game.status = 'finished';
                         }
                         await deleteKingChallenge(gameId);
                         // After instant elimination, run elimination chain if next cannot move
