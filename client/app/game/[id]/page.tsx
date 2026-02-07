@@ -59,6 +59,7 @@ export default function GamePage() {
     if (kingRespond) {
       const r = String(card.rank).toUpperCase();
       if (r !== 'K' && r !== '4') return false;
+      if (r === '4') return true;
     }
     return deltas.some(isOptionValid);
   };
